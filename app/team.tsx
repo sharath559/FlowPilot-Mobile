@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '../src/components/AppButton';
 import { Badge } from '../src/components/Badge';
 import { ChoiceList } from '../src/components/ChoiceList';
+import { ConfirmDialog } from '../src/components/ConfirmDialog';
 import { Screen } from '../src/components/Screen';
 import { Section } from '../src/components/Section';
 import { StatusNotice } from '../src/components/StatusNotice';
@@ -46,6 +47,7 @@ export default function TeamScreen() {
   const [busyAction, setBusyAction] = useState<string>();
   const [feedback, setFeedback] = useState<Feedback>();
   const [editingMember, setEditingMember] = useState<OrganizationMember>();
+  const [memberPendingRemoval, setMemberPendingRemoval] = useState<OrganizationMember>();
   const [nextRole, setNextRole] = useState<AssignableRole>('STAFF');
 
   const organizationId = membership?.organization_id;
@@ -115,29 +117,23 @@ export default function TeamScreen() {
   }
 
   function confirmRemoval(member: OrganizationMember) {
-    Alert.alert(
-      'Remove account access?',
-      `${member.email ?? 'This account'} will lose access to this organization. If it has no other memberships, its FlowPilot Auth account will also be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove access',
-          style: 'destructive',
-          onPress: () => void remove(member),
-        },
-      ],
-    );
+    setFeedback(undefined);
+    setMemberPendingRemoval(member);
   }
 
-  async function remove(member: OrganizationMember) {
+  async function removeConfirmed() {
+    const member = memberPendingRemoval;
     if (!organizationId || busyAction) return;
+    if (!member) return;
     setBusyAction(`remove:${member.user_id}`);
     setFeedback(undefined);
     try {
       const message = await removeOrganizationMember(organizationId, member.user_id);
+      setMemberPendingRemoval(undefined);
       setFeedback({ tone: 'success', text: message });
       await load();
     } catch (error) {
+      setMemberPendingRemoval(undefined);
       setFeedback({ tone: 'danger', text: error instanceof Error ? error.message : String(error) });
     } finally {
       setBusyAction(undefined);
@@ -161,6 +157,7 @@ export default function TeamScreen() {
 
   return (
     <Screen title="Team access" subtitle="Invite exact email addresses and control who can work with school records.">
+      {feedback ? <StatusNotice tone={feedback.tone} text={feedback.text} /> : null}
       <Section title="Invite member">
         <TextField
           label="Email address"
@@ -177,7 +174,6 @@ export default function TeamScreen() {
         <Text style={styles.fieldLabel}>Access role</Text>
         <ChoiceList choices={roles} selectedId={role} onSelect={(value) => setRole(value as AssignableRole)} />
         <AppButton label={busyAction === 'invite' ? 'Sending invitation...' : 'Send invitation'} onPress={() => void invite()} loading={busyAction === 'invite'} disabled={Boolean(busyAction)} />
-        {feedback ? <StatusNotice tone={feedback.tone} text={feedback.text} /> : null}
       </Section>
 
       <Section title="Members" meta={`${access.members.length} active`}>
@@ -251,6 +247,16 @@ export default function TeamScreen() {
           </View>
         </Section>
       ) : null}
+
+      <ConfirmDialog
+        visible={Boolean(memberPendingRemoval)}
+        title="Remove account access?"
+        message={`${memberPendingRemoval?.email ?? 'This account'} will lose access to this organization. If it has no other memberships, its FlowPilot Auth account will also be deleted.`}
+        confirmLabel="Remove access"
+        loading={Boolean(memberPendingRemoval && busyAction === `remove:${memberPendingRemoval.user_id}`)}
+        onCancel={() => setMemberPendingRemoval(undefined)}
+        onConfirm={() => void removeConfirmed()}
+      />
     </Screen>
   );
 }
