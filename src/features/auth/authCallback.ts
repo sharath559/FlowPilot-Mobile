@@ -8,6 +8,18 @@ export type AuthCallback = {
   error?: string;
 };
 
+let initialBrowserAuthUrl: string | null = globalThis.location?.href ?? null;
+
+export function takeInitialBrowserAuthUrl(): string | null {
+  const url = initialBrowserAuthUrl;
+  initialBrowserAuthUrl = null;
+  return url;
+}
+
+export function hasAuthCallbackPayload(callback: AuthCallback): boolean {
+  return Boolean(callback.code || callback.accessToken || callback.refreshToken || callback.error);
+}
+
 export function parseAuthCallbackUrl(url: string | null | undefined): AuthCallback {
   if (!url) return { flow: null };
 

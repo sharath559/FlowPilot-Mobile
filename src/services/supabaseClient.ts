@@ -11,18 +11,14 @@ type ExpoExtra = {
 };
 
 const extra = (Constants.expoConfig?.extra ?? Constants.manifest2?.extra ?? {}) as ExpoExtra;
-const processEnv = (globalThis as typeof globalThis & {
-  process?: { env?: Record<string, string | undefined> };
-}).process?.env;
 
 export const supabaseUrl =
-  extra.supabaseUrl || processEnv?.EXPO_PUBLIC_SUPABASE_URL || processEnv?.SUPABASE_URL || '';
+  extra.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 export const supabasePublishableKey =
   extra.supabasePublishableKey ||
   extra.supabaseAnonKey ||
-  processEnv?.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  processEnv?.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  processEnv?.SUPABASE_ANON_KEY ||
+  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
   '';
 export const supabaseAnonKey = supabasePublishableKey;
 
@@ -53,7 +49,7 @@ export const supabase = createClient(
   {
     auth: {
       autoRefreshToken: !isServerRendering,
-      detectSessionInUrl: false,
+      detectSessionInUrl: Platform.OS === 'web' && !isServerRendering,
       persistSession: !isServerRendering,
       storage: isServerRendering ? serverStorage : Platform.OS === 'web' ? AsyncStorage : secureStorage,
     },

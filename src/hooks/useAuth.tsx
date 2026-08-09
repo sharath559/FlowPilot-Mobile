@@ -5,7 +5,12 @@ import * as SecureStore from 'expo-secure-store';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { getAuthCallbackFlow } from '../features/auth/authCallback';
+import {
+  getAuthCallbackFlow,
+  hasAuthCallbackPayload,
+  parseAuthCallbackUrl,
+  takeInitialBrowserAuthUrl,
+} from '../features/auth/authCallback';
 import { completeAuthSessionFromUrl } from '../features/auth/authService';
 import { supabase } from '../services/supabaseClient';
 import type { OrganizationMember } from '../types/domain';
@@ -130,18 +135,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initialize() {
       try {
-        const browserUrl = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.href : null;
+        const capturedBrowserUrl = Platform.OS === 'web' ? takeInitialBrowserAuthUrl() : null;
+        const browserUrl = capturedBrowserUrl ?? (Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.href : null);
         const initialUrl = browserUrl ?? await Linking.getInitialURL();
+        const callback = parseAuthCallbackUrl(initialUrl);
         if (initialUrl) {
-          if (getAuthCallbackFlow(initialUrl) === 'invite') {
+          if (callback.flow === 'invite') {
             setPendingAccountSetup(true);
           }
-          await completeAuthSessionFromUrl(initialUrl);
+
+          if (Platform.OS === 'web') {
+            const { error } = await supabase.auth.initialize();
+            if (error && hasAuthCallbackPayload(callback)) throw error;
+
+            const currentSession = await supabase.auth.getSession();
+            if (currentSession.error) throw currentSession.error;
+            if (!currentSession.data.session && hasAuthCallbackPayload(callback)) {
+              await completeAuthSessionFromUrl(initialUrl);
+            }
+          } else {
+            await completeAuthSessionFromUrl(initialUrl);
+          }
         }
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (mounted) {
           await applySession(data.session);
+          if (!data.session && callback.flow === 'invite') {
+            setPendingAccountSetup(true);
+            setAccessError(
+              hasAuthCallbackPayload(callback)
+                ? 'The secure invitation could not create a session. The link may be expired or already used.'
+                : 'This page did not receive secure invitation credentials. Open the Accept invitation button in the newest email.',
+            );
+          }
         }
       } catch (error) {
         if (mounted) {
@@ -151,8 +178,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (mounted) {
-        authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        authSubscription = supabase.auth.onAuthStateChange((event, nextSession) => {
           if (!mounted) return;
+          if (event === 'INITIAL_SESSION') return;
           setTimeout(() => {
             if (mounted) void applySession(nextSession);
           }, 0);

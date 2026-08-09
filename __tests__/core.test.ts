@@ -3,7 +3,7 @@ import { calculateAge, isValidDateString } from '../src/utils/dates';
 import { buildStudentPdfHtml } from '../src/utils/html';
 import { shouldRetryQueueItem } from '../src/features/sync/retryPolicy';
 import { sanitizeRemotePayload } from '../src/features/sync/remotePayload';
-import { getAuthCallbackFlow, parseAuthCallbackUrl } from '../src/features/auth/authCallback';
+import { getAuthCallbackFlow, hasAuthCallbackPayload, parseAuthCallbackUrl } from '../src/features/auth/authCallback';
 import { authEmailOnlySchema, authEmailSchema, inviteAcceptanceSchema, studentSchema } from '../src/validation/schemas';
 import type { StudentFieldDefinition, StudentWithRelations } from '../src/types/domain';
 
@@ -151,17 +151,19 @@ describe('core utilities', () => {
   });
 
   it('reads Supabase invitation credentials from the URL fragment', () => {
-    expect(
-      parseAuthCallbackUrl(
-        'https://flowpilot-mobile.expo.app/accept-invite?flow=invite#access_token=access-value&refresh_token=refresh-value&type=invite',
-      ),
-    ).toEqual({
+    const callback = parseAuthCallbackUrl(
+      'https://flowpilot-mobile.expo.app/accept-invite?flow=invite#access_token=access-value&refresh_token=refresh-value&type=invite',
+    );
+
+    expect(callback).toEqual({
       flow: 'invite',
       code: undefined,
       accessToken: 'access-value',
       refreshToken: 'refresh-value',
       error: undefined,
     });
+    expect(hasAuthCallbackPayload(callback)).toBe(true);
+    expect(hasAuthCallbackPayload(parseAuthCallbackUrl('https://flowpilot-mobile.expo.app/accept-invite?flow=invite'))).toBe(false);
   });
 
   it('limits sync retries', () => {
