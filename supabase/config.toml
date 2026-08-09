@@ -1,0 +1,35 @@
+project_id = "flowpilot-mobile"
+
+[auth]
+site_url = "https://flowpilot-mobile.expo.app"
+additional_redirect_urls = [
+  "https://flowpilot-mobile.expo.app/auth",
+  "https://flowpilot-mobile.expo.app/accept-invite",
+  "https://flowpilot-mobile.expo.app/accept-invite?flow=invite",
+  "http://localhost:8081/auth",
+  "http://localhost:8081/accept-invite",
+  "http://localhost:8081/accept-invite?flow=invite",
+  "flowpilot://auth",
+  "flowpilot://accept-invite",
+  "flowpilot://accept-invite?flow=invite",
+]
+
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/hook_require_invitation"
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
+[auth.email.template.invite]
+subject = "Sharath invited you to FlowPilot"
+content_path = "./supabase/templates/invite.html"
+
+[functions.admin-members]
+verify_jwt = true

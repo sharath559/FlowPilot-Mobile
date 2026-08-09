@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "FlowPilot",
+    "slug": "flowpilot-mobile",
+    "scheme": "flowpilot",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.flowpilot.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.flowpilot.mobile",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow FlowPilot to capture student record photos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow FlowPilot to choose student record photos."
+        }
+      ],
+      "expo-sqlite",
+      "expo-sharing",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "supabaseUrl": "",
+      "supabasePublishableKey": "",
+      "router": {},
+      "eas": {
+        "projectId": "30d35871-2583-4046-9bcb-5cb436ba725c"
+      }
+    }
+  }
+}
