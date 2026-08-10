@@ -8,6 +8,18 @@ export type TeamAccess = {
   invitations: OrganizationInvitation[];
 };
 
+export type GeneratedOrganizationInvite = {
+  email: string;
+  inviteLink: string;
+  message: string;
+};
+
+type AdminActionResult = {
+  message: string;
+  email?: string;
+  inviteLink?: string;
+};
+
 export async function listTeamAccess(organizationId: string): Promise<TeamAccess> {
   const [membersResult, invitationsResult] = await Promise.all([
     supabase
@@ -55,15 +67,18 @@ async function getFunctionErrorMessage(error: unknown, responseData: unknown): P
 
 async function runAdminAction(
   body: Record<string, unknown>,
-): Promise<string> {
+): Promise<AdminActionResult> {
   const { data, error } = await supabase.functions.invoke('admin-members', { body });
   if (error) throw new Error(await getFunctionErrorMessage(error, data));
   if (data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string') {
     throw new Error((data as { error: string }).error);
   }
-  return data && typeof data === 'object' && typeof (data as { message?: unknown }).message === 'string'
-    ? (data as { message: string }).message
-    : 'Access was updated.';
+  const result = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+  return {
+    message: typeof result.message === 'string' ? result.message : 'Access was updated.',
+    email: typeof result.email === 'string' ? result.email : undefined,
+    inviteLink: typeof result.inviteLink === 'string' ? result.inviteLink : undefined,
+  };
 }
 
 export function inviteOrganizationMember(
@@ -71,11 +86,21 @@ export function inviteOrganizationMember(
   email: string,
   role: AssignableRole,
 ): Promise<string> {
-  return runAdminAction({ action: 'invite', organizationId, email, role });
+  return runAdminAction({ action: 'invite', organizationId, email, role }).then((result) => result.message);
+}
+
+export async function generateOrganizationInviteLink(
+  organizationId: string,
+  email: string,
+  role: AssignableRole,
+): Promise<GeneratedOrganizationInvite> {
+  const result = await runAdminAction({ action: 'generate_invite_link', organizationId, email, role });
+  if (!result.email || !result.inviteLink) throw new Error('Supabase did not return a usable invitation link.');
+  return { email: result.email, inviteLink: result.inviteLink, message: result.message };
 }
 
 export function removeOrganizationMember(organizationId: string, userId: string): Promise<string> {
-  return runAdminAction({ action: 'remove', organizationId, userId });
+  return runAdminAction({ action: 'remove', organizationId, userId }).then((result) => result.message);
 }
 
 export function changeOrganizationMemberRole(
@@ -83,9 +108,9 @@ export function changeOrganizationMemberRole(
   userId: string,
   role: AssignableRole,
 ): Promise<string> {
-  return runAdminAction({ action: 'change_role', organizationId, userId, role });
+  return runAdminAction({ action: 'change_role', organizationId, userId, role }).then((result) => result.message);
 }
 
 export function revokeOrganizationInvitation(organizationId: string, invitationId: string): Promise<string> {
-  return runAdminAction({ action: 'revoke_invitation', organizationId, invitationId });
+  return runAdminAction({ action: 'revoke_invitation', organizationId, invitationId }).then((result) => result.message);
 }

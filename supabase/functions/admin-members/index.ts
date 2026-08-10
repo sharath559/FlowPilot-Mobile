@@ -5,7 +5,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
 type MemberRole = 'ORG_ADMIN' | 'SCHOOL_ADMIN' | 'STAFF';
-type AdminAction = 'invite' | 'remove' | 'change_role' | 'revoke_invitation';
+type AdminAction = 'invite' | 'generate_invite_link' | 'remove' | 'change_role' | 'revoke_invitation';
 
 type AdminRequest = {
   action?: AdminAction;
@@ -25,6 +25,13 @@ type Membership = {
   display_name: string | null;
 };
 
+type PreparedInvitation = {
+  email: string;
+  role: MemberRole;
+  invitationId: string;
+  redirectTo: string;
+};
+
 const allowedRoles = new Set<MemberRole>(['ORG_ADMIN', 'SCHOOL_ADMIN', 'STAFF']);
 const roleLabels: Record<MemberRole, string> = {
   ORG_ADMIN: 'organization administrator',
@@ -36,7 +43,7 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, 'Cache-Control': 'no-store', 'Content-Type': 'application/json' },
   });
 }
 
@@ -100,11 +107,11 @@ async function findAuthUserByEmail(admin: SupabaseClient, email: string) {
   throw new Error('The auth user directory is too large to search safely. Contact the platform owner.');
 }
 
-async function inviteMember(
+async function prepareInvitation(
   admin: SupabaseClient,
   actor: Membership,
   request: AdminRequest,
-): Promise<Response> {
+): Promise<PreparedInvitation | Response> {
   const email = normalizeEmail(request.email);
   const role = request.role;
   if (!emailPattern.test(email)) return json({ error: 'Enter a valid email address.' }, 400);
@@ -148,6 +155,19 @@ async function inviteMember(
   const redirectTo = invitationRedirect(
     Deno.env.get('FLOWPILOT_APP_REDIRECT_URL') ?? 'flowpilot://accept-invite',
   );
+
+  return { email, role, invitationId, redirectTo };
+}
+
+async function inviteMember(
+  admin: SupabaseClient,
+  actor: Membership,
+  request: AdminRequest,
+): Promise<Response> {
+  const prepared = await prepareInvitation(admin, actor, request);
+  if (prepared instanceof Response) return prepared;
+
+  const { email, role, invitationId, redirectTo } = prepared;
   const existingAuthUser = await findAuthUserByEmail(admin, email);
 
   if (existingAuthUser) {
@@ -211,6 +231,61 @@ async function inviteMember(
   });
 
   return json({ message: `Invitation sent to ${email}.` });
+}
+
+async function generateInviteLink(
+  admin: SupabaseClient,
+  actor: Membership,
+  request: AdminRequest,
+): Promise<Response> {
+  const prepared = await prepareInvitation(admin, actor, request);
+  if (prepared instanceof Response) return prepared;
+
+  const { email, role, invitationId, redirectTo } = prepared;
+  const existingAuthUser = await findAuthUserByEmail(admin, email);
+  if (existingAuthUser) {
+    return json({ error: 'This email already has a FlowPilot account. Ask the user to sign in or remove the account before creating a new link.' }, 409);
+  }
+
+  const { data, error: linkError } = await admin.auth.admin.generateLink({
+    type: 'invite',
+    email,
+    options: {
+      redirectTo,
+      data: {
+        organization_id: actor.organization_id,
+        invited_role: role,
+        invited_role_label: roleLabels[role],
+        invited_by_name: actor.display_name?.trim() || 'Sharath',
+      },
+    },
+  });
+
+  if (linkError) {
+    await admin
+      .from('organization_invitations')
+      .update({ last_error: linkError.message })
+      .eq('id', invitationId);
+    return json({ error: linkError.message }, 400);
+  }
+
+  const inviteLink = data.properties?.action_link;
+  if (!inviteLink) return json({ error: 'Supabase did not return an invitation link.' }, 500);
+
+  await writeAudit(admin, {
+    organization_id: actor.organization_id,
+    actor_user_id: actor.user_id,
+    action: 'INVITE_SENT',
+    target_user_id: data.user?.id ?? null,
+    target_email: email,
+    metadata: { role, existing_user: false, delivery: 'manual_link' },
+  });
+
+  return json({
+    message: `Private invitation link generated for ${email}. No email was sent.`,
+    email,
+    inviteLink,
+  });
 }
 
 async function removeMember(
@@ -380,6 +455,8 @@ Deno.serve(async (request: Request) => {
     switch (body.action) {
       case 'invite':
         return await inviteMember(admin, actor, body);
+      case 'generate_invite_link':
+        return await generateInviteLink(admin, actor, body);
       case 'remove':
         return await removeMember(admin, actor, body);
       case 'change_role':
